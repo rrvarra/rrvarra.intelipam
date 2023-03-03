@@ -1,0 +1,77 @@
+<!-- extend from base -->
+{% extends "base.html" %}
+{% block content %}
+    <h2>IPAM Lookup</h2>
+    <p>
+        IPAM Data File: {{ ipam_file }} Started: {{ start_ts }}
+    </p>
+    <hr>
+    <form action="{{ url_for('ipam_lookup') }}" method="post" name="lookup_form">
+        {{ lookup_form.hidden_tag() }}
+        <p>
+            Enter IP address to lookup:<br>
+            {{ lookup_form.ip_address(rows='5', cols='140') }}<br />
+            DNS Reverse Lookup: {{ lookup_form.do_dns_reverse_lookup }}<br />
+            {% for error in lookup_form.ip_address.errors %}
+                <span style="color: red;">[{{ error }}]</span>
+            {% endfor %}<br>
+            {{ lookup_form.btn_lookup }}
+        </p>
+        {% if ip_infos %}
+            <table border="1">
+                <thead>
+                    <tr>
+                        <th>IP</th><th>Host</th><th>Subnet</th><th>Function</th><th>Environment</th><th>Title</th><th>Country</th>
+                        <th>Region</th><th>SiteName</th><th>SiteCode</th><th>BuildingCode</th><th>VPN</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for ip_info in ip_infos %}
+                      <tr>
+                          {% for col in 'IP Host Range Function Environment Title Country Region SiteName SiteCode BuildingCode VPN'.split() %}
+                              <td>{{ ip_info.get(col, '') }}</td>
+                          {% endfor %}
+                      </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}        
+    </form>
+    <hr>
+    <h2>Autoproxy Lookup</h2>
+    <form action="{{ url_for('autoproxy_lookup') }}" method="post" name="autoproxy_form">  
+        {{ autoproxy_form.hidden_tag() }}      
+        <p>
+            Enter SRC IP Address:<br>
+            {{ autoproxy_form.myip(size='60') }} <br />
+            {% for error in autoproxy_form.myip.errors %}
+                <span style="color: red;">[{{ error }}]</span>
+            {% endfor %}<br>
+            Enter URL:<br>
+            {{ autoproxy_form.url(size='140') }}<br />
+            {% for error in autoproxy_form.url.errors %}
+                <span style="color: red;">[{{ error }}]</span>
+            {% endfor %}<br>
+            {{ autoproxy_form.btn_lookup }}
+        </p>
+        {% if autoproxy_infos %}
+            <table border="1">
+                <thead>
+                    <tr>
+                        <th>IP</th><th>Host</th><th>Proxy</th>                        
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for autoproxy_info in autoproxy_infos %}
+                      <tr>
+                          {% for col in 'IP Host Proxy'.split() %}
+                              <td>{{ autoproxy_info.get(col, '') }}</td>
+                          {% endfor %}
+                      </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}        
+    </form>
+    
+{% endblock %}

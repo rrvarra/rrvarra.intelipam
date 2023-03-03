@@ -1,0 +1,5 @@
+.git/
+.vscode/
+.venv/
+ipam_gz_dir/
+__pycache__/

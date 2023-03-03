@@ -1,0 +1,11 @@
+# IntelIPAM
+requests
+keyring==23.8.2  # needed to prevent pytest Warnings: DeprecationWarning: Properties from keyring.util are no longer ...
+git+https://github.com/frispete/keyrings.cryptfile; sys_platform == 'linux'
+# For autoproxy javascript sandbox execution
+py_mini_racer
+#webapp
+flask
+flask-wtf
+waitress
+
