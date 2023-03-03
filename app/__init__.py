@@ -6,6 +6,7 @@ import string
 
 from flask import Flask
 
+from . import secrets
 sys.path.append("..")
 import logutil
 from IntelIPAM import IntelIPAM
@@ -14,8 +15,7 @@ from autoproxy import AutoProxy
 logutil.set_logging(log_file=r'D:\LOGS\IntelIPAM\INTELIPAM_WEBAPP.log')
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = ''.join(random.choices(string.ascii_letters+string.digits, k=20))
-
+app.config['SECRET_KEY'] = secrets.SECRET_KEY
 
 ipam = None
 start_ts = datetime.now().isoformat().split('.')[0]

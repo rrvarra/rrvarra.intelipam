@@ -3,3 +3,4 @@
 .venv/
 ipam_gz_dir/
 __pycache__/
+secrets.py
