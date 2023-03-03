@@ -1,7 +1,7 @@
 @ECHO OFF
 
 REM Create the INTELIPAM_WEBAPP Flask App as a service
-SET NSSM=nssm.exe
+SET NSSM=C:\TOOLS\nssm.exe
 SET SERVICE=INTELIPAM_WEBAPP
 SET ROOT_DIR=D:\INTELIPAM
 SET RUN_CMD=%ROOT_DIR%\run_intelipam_webapp.cmd
