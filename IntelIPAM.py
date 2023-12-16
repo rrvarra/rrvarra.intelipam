@@ -236,8 +236,6 @@ class IntelIPAM:
         if 'result' not in result or 'ranges' not in result['result']:
             raise Exception("IPAM API response does not have required keys: [result][ranges]")
 
-        with open(r'C:\TEMP\IPAMResult.json', 'w') as fd:
-            json.dump(result, fd, indent=2)
         ranges = result['result']['ranges']
 
         if not isinstance(ranges, list):
