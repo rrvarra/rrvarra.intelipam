@@ -40,7 +40,7 @@ The IPAM JSON File is organized as below and compressed with GZIP (.gz).  INFO d
 }
 
 TBD: For GeoCodes, Use reports here (My Reports - BuildingReport)
-http://tririga.intel.com/html/en/default/platform/mainpage/mainpage.jsp 
+http://tririga.intel.com/html/en/default/platform/mainpage/mainpage.jsp
 
 '''
 import os, sys, re
@@ -51,6 +51,7 @@ import datetime
 import gzip
 import socket
 import time
+from pprint import pprint, pformat
 
 import logutil
 
@@ -168,6 +169,7 @@ class IntelIPAM:
 
         logging.info("Loading from file: {}".format(json_gz_file))
         with gzip.open(json_gz_file, 'rt') as zfd:
+            logging.info("Loading Range file from %s", json_gz_file)
             self._master_block = json.load(zfd)
         self._ipam_file = json_gz_file
 
@@ -233,6 +235,9 @@ class IntelIPAM:
 
         if 'result' not in result or 'ranges' not in result['result']:
             raise Exception("IPAM API response does not have required keys: [result][ranges]")
+
+        with open(r'C:\TEMP\IPAMResult.json', 'w') as fd:
+            json.dump(result, fd, indent=2)
         ranges = result['result']['ranges']
 
         if not isinstance(ranges, list):
@@ -329,17 +334,15 @@ class IntelIPAM:
 
     # ---------------------------------------------------------------------------------------------------------------------
     def _is_valid_range(self, ri):
-        if ri['name'] == '::/0':
+        if ri['name'] == '::/0' or ri['name'].startswith('0.0.0.0/'):
             return False
-        if 'customProperties' not in ri:
-            raise Exception("Range {} does not have a customProperty attribute".format(ri))
-        if 'Status' not in ri['customProperties']:
-            #raise Exception("Range/customProperty {} does not have a Status attribute".format(ri))
-            logging.info("Missing: {}".format(ri))
+        if not (cp := ri.get('customProperties')):
+            raise Exception(f"Range {ri} does not have a customProperty attribute".format(ri))
+        if not (status := cp.get('Status')):
             self._missing_status_ranges.append(ri)
             return False
 
-        return ri['customProperties']['Status'] == 'Assigned' and not ri['name'].startswith('0.0.0.0/')
+        return status in ('Assigned', 'Discovered', 'Logical-group')
 
     # ---------------------------------------------------------------------------------------------------------------------
     def _convert_api_rec(self, ri):
@@ -495,6 +498,7 @@ class IntelIPAM:
         '''
         first = 0
         last = len(info_list) - 1
+        logging.info("FIRST %s LAST %s", first, last)
         #metrics = {'ncompares': 0, 'size': len(info_list)}
 
         while first <= last:
@@ -561,12 +565,14 @@ if __name__ == '__main__':
 
     if len(args) > 0:
         assert args[0].lower() == 'download', "Expecting {} [download]".format(sys.argv[0])
+        ipam = IntelIPAM('api')
+        '''
         try:
             ipam = IntelIPAM('api')
         except Exception as ex:
             logging.error(f"IPAM Initializion for API download failed - {ex}")
-            sys.exit(1)            
-
+            sys.exit(1)
+        '''
         try:
             ipam.write_json_gz(dest_dir=options.dir)
         except Exception as ex:
@@ -603,7 +609,7 @@ if __name__ == '__main__':
     start_ts = time.time()
     for ipa in address_list:
         res = intel_ipam.lookup_ip(ipa)
-    elapsed = time.time() -start_ts
+    elapsed = time.time() - start_ts
     logging.info("Lookup time {:.1f} secs time per lookup: {:.3f} mill-secs".format(elapsed, 1000*elapsed/len(address_list)))
 
     logging.info("Verification")
