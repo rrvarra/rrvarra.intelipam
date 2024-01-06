@@ -8,4 +8,5 @@ py_mini_racer
 flask
 flask-wtf
 waitress
+dohq_artifactory
 
