@@ -61,13 +61,13 @@ class IntelIPAM:
 
 
     # ---------------------------------------------------------------------------------------------------------------------
-    def __init__(self, cache_dir: str=None, init_mb:bool =True, ignore_cahce: bool=False):
+    def __init__(self, cache_dir: str=None, init_mb:bool =True, ignore_cache: bool=False):
         '''
         cache_dir: directory where ranges.gz file will cached.
         '''
         self._ipam_file, self._master_block  = None, None
         if init_mb:
-            self._ipam_file, self._master_block = self._get_range_file(cache_dir, ignore_cahce)
+            self._ipam_file, self._master_block = self._get_range_file(cache_dir, ignore_cache)
 
             # ensure the master block is sorted
             self.validate()
@@ -153,7 +153,7 @@ class IntelIPAM:
             fn_path = cache_dir_path / fn
             logging.info("Removing older file: %s", fn_path)
             fn_path.unlink()
-            
+
         logging.info("Using cache_file: %s", gz_file)
         return gz_file, mb
 
@@ -249,7 +249,7 @@ if __name__ == '__main__':
 
     # do testing
     start_ts = time.time()
-    ipam = IntelIPAM(ignore_cahce=True)
+    ipam = IntelIPAM()
 
     logging.info("Time to load: {:.1f} secs".format(time.time() - start_ts))
 
