@@ -53,7 +53,7 @@ class IntelIPAM:
     _MINIMUM_RANGES_EXPECTED = 20000
 
     # Json/zip files should start with this prefix and end with .json or .zip (case sensitive)
-    _JSON_FILE_PREFIX = 'Intel_IPAM_Ranges-'
+    _IPAM_FILE_PREFIX = 'Intel_IPAM_Ranges-'
 
     # Artifactory location to store/fetch IPAM range zipped json files
     _IPAM_AF_URL = 'https://af01p-sc.devtools.intel.com/artifactory'
@@ -61,14 +61,35 @@ class IntelIPAM:
 
 
     # ---------------------------------------------------------------------------------------------------------------------
-    def __init__(self, cache_dir: str=None):
+    def __init__(self, cache_dir: str=None, init_mb:bool =True, ignore_cahce: bool=False):
         '''
         cache_dir: directory where ranges.gz file will cached.
         '''
-        self._ipam_file, self._master_block = self._get_range_file(cache_dir)
+        self._ipam_file, self._master_block  = None, None
+        if init_mb:
+            self._ipam_file, self._master_block = self._get_range_file(cache_dir, ignore_cahce)
 
-        # ensure the master block is sorted
-        self.validate()
+            # ensure the master block is sorted
+            self.validate()
+
+    def _get_af_gz_files(self) -> list[str]:
+        url = f"{self._IPAM_AF_URL}/api/storage/{self._IPAM_AF_REPO_PATH}"
+        with requests.Session() as session:
+            session.trust_env = False # disable .netrc
+            r = session.get(url)
+        r.raise_for_status()
+        content = r.json()
+        if not (children := content.get('children')):
+            return []
+        files = list(
+            sorted(
+                cd['uri'].removeprefix('/') for cd in children
+                    if not cd['folder']
+                        and cd['uri'].startswith(f"/{self._IPAM_FILE_PREFIX}")
+                        and cd['uri'].endswith('.gz')
+            )
+        )
+        return files
 
     def _get_af_gz_file(self) -> str:
         '''
@@ -78,26 +99,14 @@ class IntelIPAM:
         dohq_artifactory which requires 2 calls (one for stat to check if its dir
         another to get children).
         '''
-        url = f"{self._IPAM_AF_URL}/api/storage/{self._IPAM_AF_REPO_PATH}"
-        with requests.Session() as session:
-            session.trust_env = False # disable .netrc
-            r = session.get(url)
-        logging.info(f"Response for {r.request.url} = {r.status_code}")
-        logging.info(f"Request Headers for {r.request.headers}")
-        logging.info(f"Response Headers for {r.headers}")
-        r.raise_for_status()
-        content = r.json()
-        if not (children := content.get('children')):
-            raise Exception(f"NO files in AF")
-        files = list(sorted(cd['uri'].removeprefix('/') for cd in children if not cd['folder'] and cd['uri'].endswith('.gz')))
+        files = self._get_af_gz_files()
         if not files:
             raise Exception(f"NO files in AF")
         return files[-1]
 
-
     def _fetch_af_gz_file(self, af_file: str, cache_dir_path: Path) -> tuple[Path, dict]:
         url = f"{self._IPAM_AF_URL}/{self._IPAM_AF_REPO_PATH}/{af_file}"
-        logging.info("Fetching %s", url)
+        logging.info("Fetching ranges from Artifactry %s", url)
         with requests.Session() as session:
             session.trust_env = False # disable .netrc
             r = session.get(url)
@@ -106,14 +115,12 @@ class IntelIPAM:
         cache_file = cache_dir_path / af_file
         with cache_file.open('wb') as fd_cache:
             fd_cache.write(content)
-
-        logging.info("Reading %s", cache_file)
         with gzip.open(cache_file, 'rt') as zfd:
             mb = json.load(zfd)
 
         return cache_file, mb
 
-    def _get_range_file(self, cache_dir: str) -> tuple[str, dict]:
+    def _get_range_file(self, cache_dir: str, ignore_cache: bool=False) -> tuple[str, dict]:
         if cache_dir is None:
             cache_dir = os.path.join(tempfile.gettempdir(), f"IntelIPAM_{getpass.getuser()}")
         cache_dir_path = Path(cache_dir)
@@ -121,7 +128,9 @@ class IntelIPAM:
             os.mkdir(cache_dir_path)
         assert cache_dir_path.is_dir()
         # files will be sorted by chrono order
-        gz_files = list(sorted(cache_dir_path.glob('*.gz')))
+        gz_files = None
+        if not ignore_cache:
+            gz_files = list(sorted(cache_dir_path.glob('*.gz')))
         if gz_files:
             # try most recent file
             gz_file = cache_dir_path / gz_files[-1]
@@ -131,6 +140,9 @@ class IntelIPAM:
                 af_gz_file = self._get_af_gz_file()
                 if af_gz_file != gz_file.name:
                     gz_file, mb = self._fetch_af_gz_file(af_gz_file, cache_dir_path)
+                else:
+                    # AF does not have a new file, update time to keep usage for another day
+                    gz_file.touch()
             if not mb:
                 logging.info("Loading from %s", gz_file)
                 with gzip.open(gz_file, 'rt') as zfd:
@@ -140,21 +152,6 @@ class IntelIPAM:
 
         #logging.info("Files in %s = %s", cache_dir_path, gz_files)
         return gz_file, mb
-
-
-    # ---------------------------------------------------------------------------------------------------------------------
-    def _matchng_files(self, source_dir):
-        '''
-        return a sorted list of (mtime, file_path) tuples that match with prefix and ends with .gz
-        from source directory - most recent files first.
-        '''
-        def fn_match(f):
-            return f.startswith(self._JSON_FILE_PREFIX) and f.endswith('.gz')
-
-        #file_infos = ((f.stat().st_mtime, f.path) for f in os.scandir(source_dir) if fn_match(f.name))
-        file_paths = [os.path.join(source_dir, file_name) for file_name in os.listdir(source_dir) if fn_match(file_name)]
-        file_infos = [(os.path.getmtime(fp), fp) for fp in file_paths]
-        return sorted(file_infos, reverse=True)
 
     # ---------------------------------------------------------------------------------------------------------------------
     def get_ipam_file(self):
@@ -248,7 +245,7 @@ if __name__ == '__main__':
 
     # do testing
     start_ts = time.time()
-    ipam = IntelIPAM()
+    ipam = IntelIPAM(ignore_cahce=True)
 
     logging.info("Time to load: {:.1f} secs".format(time.time() - start_ts))
 
@@ -272,3 +269,9 @@ if __name__ == '__main__':
             address_list.append(str(n.network_address + i))
 
     logging.info("Benchmark with {} addresses".format(len(address_list)))
+    start_ts = time.time()
+    for ipa in address_list:
+        res = ipam.lookup_ip(ipa)
+    elapsed = time.time() - start_ts
+    rate = 1000*elapsed/len(address_list)
+    logging.info(f"Lookup time {elapsed:.1f} secs time per lookup: {rate:.3f} milli-secs")
