@@ -128,10 +128,8 @@ class IntelIPAM:
             os.mkdir(cache_dir_path)
         assert cache_dir_path.is_dir()
         # files will be sorted by chrono order
-        gz_files = None
-        if not ignore_cache:
-            gz_files = list(sorted(cache_dir_path.glob('*.gz')))
-        if gz_files:
+        gz_files = list(sorted(cache_dir_path.glob(f'{self._IPAM_FILE_PREFIX}*.gz')))
+        if not ignore_cache and gz_files:
             # try most recent file
             gz_file = cache_dir_path / gz_files[-1]
             mb = None
@@ -150,7 +148,13 @@ class IntelIPAM:
         else:
             gz_file, mb = self._fetch_af_gz_file(self._get_af_gz_file(), cache_dir_path)
 
-        #logging.info("Files in %s = %s", cache_dir_path, gz_files)
+        # remove other cached files
+        for fn in gz_files[:-1]:
+            fn_path = cache_dir_path / fn
+            logging.info("Removing older file: %s", fn_path)
+            fn_path.unlink()
+            
+        logging.info("Using cache_file: %s", gz_file)
         return gz_file, mb
 
     # ---------------------------------------------------------------------------------------------------------------------
