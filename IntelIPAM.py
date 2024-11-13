@@ -43,7 +43,6 @@ import logging
 import ipaddress
 import time
 import gzip
-from pprint import pprint, pformat
 import requests
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -101,7 +100,7 @@ class IntelIPAM:
         '''
         files = self._get_af_gz_files()
         if not files:
-            raise Exception(f"NO files in AF")
+            raise Exception("NO files in AF")
         return files[-1]
 
     def _fetch_af_gz_file(self, af_file: str, cache_dir_path: Path) -> tuple[Path, dict]:

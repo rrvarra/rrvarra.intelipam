@@ -56,7 +56,6 @@ import re
 import gzip
 import io
 import time
-from pprint import pprint, pformat
 
 import requests
 
