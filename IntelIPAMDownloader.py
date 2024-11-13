@@ -49,6 +49,9 @@ import logging
 import ipaddress
 from datetime import datetime, UTC
 from pathlib import Path
+import tempfile
+import getpass
+import pickle
 import re
 import gzip
 import io
@@ -69,6 +72,7 @@ class IntelIPAMDownloader(IntelIPAM):
     _IPAM_API_URL = 'https://ipam.intel.com/mmws/api/ranges'
 
     # Intel CERT File for https client.  Get from https://pki.intel.com
+
     _CERT_FILE = Path(__file__).parent / 'IntelSHA256RootCA-Base64.crt'
 
     # Ignore these sites - no geo location map expected for these.
@@ -103,11 +107,14 @@ class IntelIPAMDownloader(IntelIPAM):
         super().__init__(init_mb=False)
 
     # ---------------------------------------------------------------------------------------------------------------
-    def upload_json_gz_to_af(self, af_auth: tuple[str, str], keep: int=3):
+    def upload_json_gz_to_af(self, keep: int=3):
         '''
         Write master_block to file to artifactory in in gz format
         keep: # of recent files to keep in the artifactory. All older files will be deleted.
         '''
+        su = SecretUtil()
+        af_auth = su.get_secret('KEYRING:IPAM:AF_IT_BTRM_LOCAL_USER'), su.get_secret('KEYRING:IPAM:AF_IT_BTRM_LOCAL_PASSWORD')
+
 
         current_af_files = self._get_af_gz_files()
         ts = datetime.now(UTC)
@@ -136,15 +143,47 @@ class IntelIPAMDownloader(IntelIPAM):
     def update_ranges(self) -> None:
         su = SecretUtil()
         ipam_api_auth = su.get_secret('KEYRING:IPAM:IPAM_API_USER'), su.get_secret('KEYRING:IPAM:IPAM_API_PASSWORD')
-        af_auth = su.get_secret('KEYRING:IPAM:AF_IT_BTRM_LOCAL_USER'), su.get_secret('KEYRING:IPAM:AF_IT_BTRM_LOCAL_PASSWORD')
-
         self._init_from_api(ipam_api_auth)
         # ensure the master block is sorted
         self.validate()
-        self.upload_json_gz_to_af(af_auth)
+
+        self.upload_json_gz_to_af()
         logging.info("Done")
 
-    # ---------------------------------------------------------------------------------------------------------------------
+    def _fetch_ipam_ranges(self, api_auth: tuple[str, str]) -> dict:
+        logging.info("Fetching IPAM ranges from API: %s", self._IPAM_API_URL)
+        resp = requests.get(self._IPAM_API_URL, auth=api_auth, verify=self._CERT_FILE)
+        resp.raise_for_status()
+        try:
+            result = resp.json()
+        except Exception as ex:
+            raise Exception(f"Failed to parse IPAM API json response: {ex}")
+
+        if 'result' not in result or 'ranges' not in result['result']:
+            raise Exception("IPAM API response does not have required keys: [result][ranges]")
+
+        ranges = result['result']['ranges']
+        if not isinstance(ranges, list):
+            raise Exception(f"IPAM API response contains non list type: [result][ranges] - {type(ranges)}")
+        if result['result']['totalResults'] != len(result['result']['ranges']):
+            raise Exception(f"{result['result']['totalResults']=} != {len(result['result']['ranges'])}")
+
+        return result
+
+    def _cached_fetch_ipam_ranges(self, api_auth: tuple[str, str]) -> dict:
+        cache_file = Path(tempfile.gettempdir()) / f"intel_ipam_ranges_{getpass.getuser()}.pkl"
+        if cache_file.exists():
+            logging.info("Fetching IPAM Ranages from existing cache: %s", cache_file)
+            with cache_file.open('rb') as fd:
+                return pickle.load(fd)
+
+        result = self._fetch_ipam_ranges(api_auth)
+
+        logging.info("Writing IPAM Ranges to cache: %s", cache_file)
+        with cache_file.open('wb') as fd:
+            pickle.dump(result, fd)
+        return result
+
     def _init_from_api(self, api_auth: tuple[str, str]):
         '''
         Load IPAM range data from API and build sorted master_block structure.
@@ -162,24 +201,10 @@ class IntelIPAMDownloader(IntelIPAM):
         logging.info("Loading ipam ranges")
 
         start_ts = time.time()
-        resp = requests.get(self._IPAM_API_URL, auth=api_auth, verify=self._CERT_FILE)
-        resp.raise_for_status()
+        result = self._fetch_ipam_ranges(api_auth)
         elapsed = time.time() - start_ts
-        logging.info(f"API Returned in {elapsed:.1f} secs")
-
-        try:
-            result = resp.json()
-        except Exception as ex:
-            raise Exception(f"Failed to parse IPAM API json response: {ex}")
-
-        if 'result' not in result or 'ranges' not in result['result']:
-            raise Exception("IPAM API response does not have required keys: [result][ranges]")
-
+        logging.info(f"IPAM Range fetch completed in {elapsed:.1f} secs")
         ranges = result['result']['ranges']
-
-        if not isinstance(ranges, list):
-            raise Exception(f"IPAM API response contains non list type: [result][ranges] - {type(ranges)}")
-
         logging.info("IPAM API returned %s ranges", len(ranges))
 
         self._missing_status_ranges = []
@@ -224,12 +249,27 @@ class IntelIPAMDownloader(IntelIPAM):
         return overlap_list
 
     # ------------------------------------------------------------------------------------------------------------------
-    def _build_master_block(self, ranges):
+    def _build_master_block(self, ranges: list[dict]) -> None:
+        good, bad = 0, 0
         for ri in ranges:
             if not self._is_valid_range(ri):
+                bad += 1
                 continue
+            good += 1
             rec, version = self._convert_api_rec(ri)
             self._add_to_master_block(rec, version)
+        logging.info("MasterBlock: Total ranges: %s good: %s bad: %s", len(ranges), good, bad)
+        self._debug_mb()
+
+
+    def _debug_mb(self):
+        logging.info("MB VERSIONSs: %s", self._master_block.keys())
+        for ip_version in ("4", "6"):
+            snb = self._master_block[ip_version]
+            logging.info("IP_VERSION %s - SNB Len: %s", ip_version, len(snb))
+            for sb in snb:
+                for k, v in sb.items():
+                    logging.info("Range %s count %s", k, len(v))
 
     # ------------------------------------------------------------------------------------------------------------------
     def _range_info(self, subnet_range):
@@ -314,16 +354,16 @@ class IntelIPAMDownloader(IntelIPAM):
         range_size = ip_end - ip_begin + 1
 
         # find the range block that has these this range by size
-        subnet_block = [sb for sb in subnet_blocks if range_size in sb]
-        if len(subnet_block) > 0:
-            subnet_block = subnet_block[0]
-        else:
+        subnet_block = next((sb for sb in subnet_blocks if range_size in sb), None)
+        if not subnet_block:
             # we are using integer range size as key for subnet_block.
             # json will output it as string key, however, we will need to lookup
             # the block by key during the lookup process, hence we leave it as int
             # since we can sort using ints rather converting them from str to int
             subnet_block = {range_size: []}
             subnet_blocks.append(subnet_block)
+
+        #logging.info("Adding block to range_size: %s", range_size)
         subnet_block[range_size].append(rec)
 
     # ---------------------------------------------------------------------------------------------------------------
@@ -356,4 +396,3 @@ if __name__ == '__main__':
 
     ipam_dl = IntelIPAMDownloader()
     ipam_dl.update_ranges()
-

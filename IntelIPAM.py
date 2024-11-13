@@ -178,6 +178,8 @@ class IntelIPAM:
         '''
         for ip_version, subnet_blocks in self._master_block.items():
             range_size_list = [int(list(blocks_dict.keys())[0]) for blocks_dict in subnet_blocks]
+            if not range_size_list:
+                continue
             if not self._is_sorted(range_size_list):
                 raise Exception("IPV{} Range sizes are not in sorted order: {}".format(ip_version, range_size_list))
 
